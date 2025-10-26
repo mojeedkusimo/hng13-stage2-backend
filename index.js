@@ -145,7 +145,7 @@ app.post("/countries/refresh", async (req, res) => {
             const exchangeRate = exchangeRates[currency.code] || 0;
             const estimatedGdp = exchangeRate === 0 ? 0 : country.population * randomNum / exchangeRate;
 
-            connection.query("INSERT INTO countries (name, capital, region, population, flag_url, currency_code, exchange_rate, estimated_gdp, last_refreshed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [country.name, country.capital, country.region, country.population, country.flag, currency.code, exchangeRate, estimatedGdp, new Date().toISOString()], (error, results) => {
+            connection.query("INSERT INTO countries (name, capital, region, population, flag_url, currency_code, exchange_rate, estimated_gdp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [country.name, country.capital, country.region, country.population, country.flag, currency.code, exchangeRate, estimatedGdp], (error, results) => {
                 if (error) {
                     console.error("Error inserting/updating country:", error);
                 }
