@@ -4,7 +4,7 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { createCanvas } from "canvas";
-import mysql from 'mysql';
+import mysql from 'mysql2';
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -14,7 +14,8 @@ const connection = mysql.createConnection({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT
 });
 
 const app = express();
@@ -318,6 +319,37 @@ app.get("/status", (req, res) => {
 
 
 });
+
+app.get("/setup", (req, res) => {
+    try {
+
+        connection.query(`CREATE TABLE  countries (
+                        ID int(11) NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                        NAME varchar(250) NOT NULL,
+                        CAPITAL varchar(250) DEFAULT NULL,
+                        REGION varchar(250) DEFAULT NULL,
+                        POPULATION int(9) NOT NULL,
+                        CURRENCY_CODE varchar(3) NOT NULL,
+                        EXCHANGE_RATE int(9) NOT NULL,
+                        ESTIMATED_GDP int(12) NOT NULL,
+                        FLAG_URL varchar(250) DEFAULT NULL,
+                        LAST_REFRESHED_AT timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+                        )`, (error, results) => {
+            if (error) {
+                console.error("Error querying the database:", error);
+                return res.status(500).send("Internal Server Error");
+            }
+
+            return res.status(200).json({
+                message: "Table created successfully"
+            });
+        });
+    } catch (error) {
+        console.error("Error deleting country:", error);
+        res.status(500).json({ message: "Error deleting country" });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
