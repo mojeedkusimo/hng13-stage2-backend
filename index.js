@@ -140,39 +140,25 @@ app.post("/countries/refresh", async (req, res) => {
         const randomNum = (Math.random() * 1000) + 1000;
         console.log(randomNum)
 
-        countriesData.map((country, index) => {
-            const currency = country.currencies && country.currencies.length > 0 ? country.currencies[0] : { code: "N/A" };
-            const exchangeRate = exchangeRates[currency.code] || 0;
-            const estimatedGdp = exchangeRate === 0 ? 0 : country.population * randomNum / exchangeRate;
+        const formattedCountry = countriesData.map((country, index) => {
+            const currency = country.currencies && country.currencies.length > 0 ? country.currencies[0] : { code: null };
+            let exchangeRate = exchangeRates[currency.code] || 0;
+            let estimatedGdp = exchangeRate === 0 ? 0 : country.population * randomNum / exchangeRate;
+            estimatedGdp = estimatedGdp.toFixed();
 
-            connection.query("INSERT INTO countries (name, capital, region, population, flag_url, currency_code, exchange_rate, estimated_gdp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [country.name, country.capital, country.region, country.population, country.flag, currency.code, exchangeRate, estimatedGdp], (error, results) => {
+            if (!exchangeRates[currency.code]) {
+                estimatedGdp = null;
+                exchangeRate = null;
+                console.log(country.currencies)
+            }
+
+
+            connection.query("INSERT INTO countries (name, capital, region, population, flag_url, currency_code, exchange_rate, estimated_gdp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [country.name, country.capital, country.region, country.population, country.flag, currency.code, exchangeRate, estimatedGdp], (error, results) => {
                 if (error) {
                     console.error("Error inserting/updating country:", error);
                 }
             });
 
-            const validationObject = {
-                "error": "Validation failed"
-            };
-
-            const details = {};
-
-            if (country.name === undefined) {
-                details.name = "is required";
-            }
-
-            if (country.population === undefined) {
-                details.population = "is required";
-            }
-
-            // if (country.currency_code === undefined) {
-            //     details.currency_code = "is required";
-            // }
-
-            if (Object.keys(details).length > 0) {
-                validationObject.details = details;
-                return res.status(400).json(validationObject);
-            }
 
             return {
                 id: index + 1,
@@ -190,7 +176,7 @@ app.post("/countries/refresh", async (req, res) => {
 
         generateSummaryImage();
 
-        res.status(200).json(countriesData);
+        res.status(200).json(formattedCountry);
     } catch (error) {
         console.error("Error refreshing database:", error);
         res.status(500).json({ message: "Error refreshing database" });
@@ -218,9 +204,33 @@ app.get("/countries/:name", (req, res) => {
                 console.error("Error querying the database:", error);
                 return res.status(500).send("Internal Server Error");
             }
+            let country = results[0];
 
             if (results.length > 0) {
-                res.status(200).json(results[0]);
+                const validationObject = {
+                    "error": "Validation failed"
+                };
+
+                const details = {};
+
+                if (!country.NAME) {
+                    details.name = "is required";
+                }
+
+                if (!country.POPULATION) {
+                    details.population = "is required";
+                }
+
+                if (country.CURRENCY_CODE == 0) {
+                    details.currency_code = "is required";
+                }
+
+                if (Object.keys(details).length > 0) {
+                    validationObject.details = details;
+                    return res.status(400).json(validationObject);
+                }
+
+                res.status(200).json(results);
             } else {
                 res.status(404).json({ message: "Country not found" });
             }
@@ -309,7 +319,7 @@ app.get("/status", (req, res) => {
 
             const total_countries = results.length;
             const last_refreshed_at = total_countries > 0 ? results[0].LAST_REFRESHED_AT : null;
-            res.status(200).json({ total_countries, last_refreshed_at });
+            return res.status(200).json({ total_countries, last_refreshed_at });
         });
 
     } catch (error) {
@@ -323,15 +333,23 @@ app.get("/status", (req, res) => {
 app.get("/setup", (req, res) => {
     try {
 
+        connection.query(`DROP TABLE countries`, (error, result) => {
+            if (error) {
+                console.error("Error Deleting the table:", error);
+                return res.status(500).send("Internal Server Error");
+            }
+            console.log('table dropped!')
+        });
+
         connection.query(`CREATE TABLE  countries (
                         ID int(11) NOT NULL PRIMARY KEY AUTO_INCREMENT,
                         NAME varchar(250) NOT NULL,
                         CAPITAL varchar(250) DEFAULT NULL,
                         REGION varchar(250) DEFAULT NULL,
                         POPULATION int(9) NOT NULL,
-                        CURRENCY_CODE varchar(3) NOT NULL,
-                        EXCHANGE_RATE int(9) NOT NULL,
-                        ESTIMATED_GDP int(12) NOT NULL,
+                        CURRENCY_CODE varchar(3),
+                        EXCHANGE_RATE int(9),
+                        ESTIMATED_GDP BIGINT,
                         FLAG_URL varchar(250) DEFAULT NULL,
                         LAST_REFRESHED_AT timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
                         )`, (error, results) => {
@@ -340,6 +358,7 @@ app.get("/setup", (req, res) => {
                 return res.status(500).send("Internal Server Error");
             }
 
+            console.log('table created!')
             return res.status(200).json({
                 message: "Table created successfully"
             });
@@ -347,6 +366,24 @@ app.get("/setup", (req, res) => {
     } catch (error) {
         console.error("Error deleting country:", error);
         res.status(500).json({ message: "Error deleting country" });
+    }
+});
+
+app.get("/clear", (req, res) => {
+    try {
+
+        connection.query(`TRUNCATE TABLE countries`, (error, result) => {
+            if (error) {
+                console.error("Error Deleting the table:", error);
+                return res.status(500).send("Internal Server Error");
+            }
+            console.log('table truncated!')
+            res.status(200).json({
+                message: "Table cleared!"
+            })
+        });
+    } catch (error) {
+        console.log(error)
     }
 });
 
