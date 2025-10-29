@@ -205,7 +205,7 @@ app.post("/countries/refresh", async (req, res) => {
                 console.log("Inserted countries successfully:", results.affectedRows);
             }
         });
-
+        bulkInsert = [];
 
         await generateSummaryImage();
 
@@ -292,11 +292,11 @@ app.get("/countries", (req, res) => {
             if (req.query.region) {
 
 
-                filteredCountries = filteredCountries.filter(c => c.region.toLowerCase() === req.query.region.toLowerCase());
+                filteredCountries = filteredCountries.filter(c => c.region?.toLowerCase() === req.query.region.toLowerCase());
             }
 
             if (req.query.currency) {
-                filteredCountries = filteredCountries.filter(c => c.currency_code.toLowerCase() === req.query.currency.toLowerCase());
+                filteredCountries = filteredCountries.filter(c => c.currency_code?.toLowerCase() === req.query.currency.toLowerCase());
             }
 
             if (req.query.sort) {
