@@ -25,7 +25,9 @@ app.use(express.json());
 const PORT = 3031;
 let database = [];
 
-const generateSummaryImage = () => {
+let bulkInsert = [];
+
+const generateSummaryImage = async () => {
     connection.query("SELECT * FROM countries", (error, results) => {
         if (error) {
             console.error("Error querying the database:", error);
@@ -59,15 +61,15 @@ const generateSummaryImage = () => {
         // console.log(database)
 
         // Timestamp
-        ctx.fillText(`Last refreshed at: ${database.length > 0 ? database[0].LAST_REFRESHED_AT : "N/A"}`, 50, 110);
+        ctx.fillText(`Last refreshed at: ${database.length > 0 ? database[0].last_refreshed_at : "N/A"}`, 50, 110);
 
         // Top 5 countries by GDP
         const lineHeight = 30;
         ctx.fillText("Top 5 countries by GDP:", 50, 140);
-        const countriesToShow = database.sort((a, b) => b.ESTIMATED_GDP - a.ESTIMATED_GDP);
+        const countriesToShow = database.sort((a, b) => b.estimated_gdp - a.estimated_gdp);
 
         countriesToShow.slice(0, 5).forEach((country, index) => {
-            ctx.fillText(`${index + 1}. ${country.NAME}: $${country.ESTIMATED_GDP.toFixed(2)}`, 50, 170 + index * lineHeight);
+            ctx.fillText(`${index + 1}. ${country.name}: $${country.estimated_gdp.toFixed(2)}`, 50, 170 + index * lineHeight);
         });
 
         // Save the image to cache
@@ -134,6 +136,7 @@ app.post("/countries/refresh", async (req, res) => {
             if (error) {
                 console.error("Error truncating countries table:", error);
             }
+            console.log('Table truncated!')
         });
 
         const exchangeRates = responseExchangeRate.data.rates;
@@ -141,7 +144,8 @@ app.post("/countries/refresh", async (req, res) => {
         console.log(randomNum)
 
         const formattedCountry = countriesData.map((country, index) => {
-            const currency = country.currencies && country.currencies.length > 0 ? country.currencies[0] : { code: null };
+            let singleInsert = [];
+            const currency = country.currencies?.[0] || { code: null };
             let exchangeRate = exchangeRates[currency.code] || 0;
             let estimatedGdp = exchangeRate === 0 ? 0 : country.population * randomNum / exchangeRate;
             estimatedGdp = estimatedGdp.toFixed();
@@ -149,15 +153,29 @@ app.post("/countries/refresh", async (req, res) => {
             if (!exchangeRates[currency.code]) {
                 estimatedGdp = null;
                 exchangeRate = null;
-                console.log(country.currencies)
             }
 
 
-            connection.query("INSERT INTO countries (name, capital, region, population, flag_url, currency_code, exchange_rate, estimated_gdp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [country.name, country.capital, country.region, country.population, country.flag, currency.code, exchangeRate, estimatedGdp], (error, results) => {
-                if (error) {
-                    console.error("Error inserting/updating country:", error);
-                }
-            });
+            // connection.query("INSERT INTO countries (name, capital, region, population, flag_url, currency_code, exchange_rate, estimated_gdp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [country.name, country.capital, country.region, country.population, country.flag, currency.code, exchangeRate, estimatedGdp], (error, results) => {
+            //     if (error) {
+            //         console.error("Error inserting/updating country:", error);
+            //     }
+            // });
+            singleInsert = [
+                country.name,
+                country.capital,
+                country.region,
+                country.population,
+                country.flag,             
+                currency.code,
+                exchangeRate,
+                estimatedGdp
+            ];
+
+            bulkInsert.push(singleInsert);
+
+
+
 
 
             return {
@@ -174,17 +192,33 @@ app.post("/countries/refresh", async (req, res) => {
             };
         });
 
-        generateSummaryImage();
 
-        res.status(200).json(formattedCountry);
+        const sql = `
+  INSERT INTO countries 
+  (name, capital, region, population, flag_url, currency_code, exchange_rate, estimated_gdp) 
+  VALUES ?
+`;
+        connection.query(sql, [bulkInsert], (error, results) => {
+            if (error) {
+                console.error("Error inserting countries:", error);
+            } else {
+                console.log("Inserted countries successfully:", results.affectedRows);
+            }
+        });
+
+
+        await generateSummaryImage();
+
+        return res.status(200).json(formattedCountry);
     } catch (error) {
         console.error("Error refreshing database:", error);
         res.status(500).json({ message: "Error refreshing database" });
     }
 });
 
-app.get("/countries/image", (req, res) => {
+app.get("/countries/image", async (req, res) => {
 
+    await generateSummaryImage();
     const __dirname = path.resolve();
     const CACHE_PATH = path.join(__dirname, "cache", "summary.png");
     if (!fs.existsSync(CACHE_PATH)) {
@@ -197,9 +231,9 @@ app.get("/countries/image", (req, res) => {
 app.get("/countries/:name", (req, res) => {
 
     try {
-        const countryName = req.params.name.toLowerCase();
+        const countryname = req.params.name.toLowerCase();
 
-        connection.query("SELECT * FROM countries WHERE LOWER(name) = ?", [countryName], (error, results) => {
+        connection.query("SELECT * FROM countries WHERE LOWER(name) = ?", [countryname], (error, results) => {
             if (error) {
                 console.error("Error querying the database:", error);
                 return res.status(500).send("Internal Server Error");
@@ -213,15 +247,15 @@ app.get("/countries/:name", (req, res) => {
 
                 const details = {};
 
-                if (!country.NAME) {
+                if (!country.name) {
                     details.name = "is required";
                 }
 
-                if (!country.POPULATION) {
+                if (!country.population) {
                     details.population = "is required";
                 }
 
-                if (country.CURRENCY_CODE == 0) {
+                if (country.currency_code == 0) {
                     details.currency_code = "is required";
                 }
 
@@ -258,18 +292,18 @@ app.get("/countries", (req, res) => {
             if (req.query.region) {
 
 
-                filteredCountries = filteredCountries.filter(c => c.REGION === req.query.region);
+                filteredCountries = filteredCountries.filter(c => c.region.toLowerCase() === req.query.region.toLowerCase());
             }
 
             if (req.query.currency) {
-                filteredCountries = filteredCountries.filter(c => c.CURRENCY_CODE.toLowerCase() === req.query.currency.toLowerCase());
+                filteredCountries = filteredCountries.filter(c => c.currency_code.toLowerCase() === req.query.currency.toLowerCase());
             }
 
             if (req.query.sort) {
                 if (req.query.sort === "gdp_asc") {
-                    filteredCountries.sort((a, b) => a.ESTIMATED_GDP - b.ESTIMATED_GDP);
+                    filteredCountries.sort((a, b) => a.estimated_gdp - b.estimated_gdp);
                 } else if (req.query.sort === "gdp_desc") {
-                    filteredCountries.sort((a, b) => b.ESTIMATED_GDP - a.ESTIMATED_GDP);
+                    filteredCountries.sort((a, b) => b.estimated_gdp - a.estimated_gdp);
                 }
             }
 
@@ -286,9 +320,9 @@ app.delete("/countries/:name", (req, res) => {
 
     try {
 
-        const countryName = req.params.name.toLowerCase();
+        const countryname = req.params.name.toLowerCase();
 
-        connection.query("DELETE FROM countries WHERE LOWER(name) = ?", [countryName], (error, results) => {
+        connection.query("DELETE FROM countries WHERE LOWER(name) = ?", [countryname], (error, results) => {
             if (error) {
                 console.error("Error querying the database:", error);
                 return res.status(500).send("Internal Server Error");
@@ -318,7 +352,7 @@ app.get("/status", (req, res) => {
             console.log(results);
 
             const total_countries = results.length;
-            const last_refreshed_at = total_countries > 0 ? results[0].LAST_REFRESHED_AT : null;
+            const last_refreshed_at = total_countries > 0 ? results[0].last_refreshed_at : null;
             return res.status(200).json({ total_countries, last_refreshed_at });
         });
 
@@ -342,16 +376,16 @@ app.get("/setup", (req, res) => {
         });
 
         connection.query(`CREATE TABLE  countries (
-                        ID int(11) NOT NULL PRIMARY KEY AUTO_INCREMENT,
-                        NAME varchar(250) NOT NULL,
-                        CAPITAL varchar(250) DEFAULT NULL,
-                        REGION varchar(250) DEFAULT NULL,
-                        POPULATION int(9) NOT NULL,
-                        CURRENCY_CODE varchar(3),
+                        id int(11) NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                        name varchar(250) NOT NULL,
+                        capital varchar(250) DEFAULT NULL,
+                        region varchar(250) DEFAULT NULL,
+                        population int(9) NOT NULL,
+                        currency_code varchar(3),
                         EXCHANGE_RATE int(9),
-                        ESTIMATED_GDP BIGINT,
+                        estimated_gdp BIGINT,
                         FLAG_URL varchar(250) DEFAULT NULL,
-                        LAST_REFRESHED_AT timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+                        last_refreshed_at timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
                         )`, (error, results) => {
             if (error) {
                 console.error("Error querying the database:", error);
